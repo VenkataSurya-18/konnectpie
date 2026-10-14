@@ -2,6 +2,6 @@
 import axios from "axios";
 
 export const api = axios.create({
-  baseURL: "/api",
+  baseURL: "https://konnectpie.onrender.com/api",
   withCredentials: true,
 });

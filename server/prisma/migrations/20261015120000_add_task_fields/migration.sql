@@ -1,0 +1,19 @@
+ALTER TABLE "Task"
+ADD COLUMN "assignedToId" TEXT,
+ADD COLUMN "category" TEXT NOT NULL DEFAULT 'General',
+ADD COLUMN "deadline" TIMESTAMP(3),
+ADD COLUMN "reward" INTEGER NOT NULL DEFAULT 1000;
+
+UPDATE "Task"
+SET "assignedToId" = "workerId";
+
+ALTER TABLE "Task"
+DROP CONSTRAINT "Task_workerId_fkey";
+
+ALTER TABLE "Task"
+ADD CONSTRAINT "Task_assignedToId_fkey"
+FOREIGN KEY ("assignedToId") REFERENCES "User"("id")
+ON DELETE SET NULL ON UPDATE CASCADE;
+
+ALTER TABLE "Task"
+DROP COLUMN "workerId";

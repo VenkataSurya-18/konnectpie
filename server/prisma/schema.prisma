@@ -1,4 +1,3 @@
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -58,20 +57,23 @@ model User {
 }
 
 model Task {
-  id          String         @id @default(uuid())
-  title       String
-  description String
+  id           String     @id @default(uuid())
+  title        String
+  description  String
   instructions String?
-  status      TaskStatus     @default(DRAFT)
-  providerId  String
-  workerId    String?
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
+  category     String     @default("General")
+  reward       Int        @default(1000)
+  deadline     DateTime?
+  status       TaskStatus @default(DRAFT)
+  providerId   String
+  assignedToId String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
 
-  provider    User           @relation("Provider", fields: [providerId], references: [id])
-  worker      User?          @relation("Worker", fields: [workerId], references: [id])
-  claims      TaskClaim[]
-  submissions Submission[]
+  provider     User       @relation("Provider", fields: [providerId], references: [id])
+  worker       User?      @relation("Worker", fields: [assignedToId], references: [id])
+  claims       TaskClaim[]
+  submissions  Submission[]
 }
 
 model TaskClaim {
@@ -109,7 +111,6 @@ model Notification {
   user      User     @relation(fields: [userId], references: [id])
 }
 
-
 model AuditLog {
   id        String   @id @default(uuid())
   adminId   String
@@ -118,4 +119,3 @@ model AuditLog {
   details   String?
   createdAt DateTime @default(now())
 }
-

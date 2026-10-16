@@ -31,15 +31,15 @@ const createSchema = z.object({
 // Provider creates a published task
 r.post("/", requireAuth, requireRole("PROVIDER"), async (req, res) => {
   try {
-    const p = createSchema.safeParse(req.body);
+    const parsed = createSchema.safeParse(req.body);
 
-    if (!p.success) {
-      return res.status(400).json(p.error.flatten());
+    if (!parsed.success) {
+      return res.status(400).json(parsed.error.flatten());
     }
 
     const task = await prisma.task.create({
       data: {
-        ...p.data,
+        ...parsed.data,
         providerId: req.user!.id,
         status: "PUBLISHED",
       },
@@ -53,9 +53,23 @@ r.post("/", requireAuth, requireRole("PROVIDER"), async (req, res) => {
   }
 });
 
-// List published tasks that have not passed their deadline
+// List available tasks
 r.get("/", requireAuth, async (_req, res) => {
   try {
+    const totalTasks = await prisma.task.count();
+    const availableTasks = await prisma.task.count({
+      where: {
+        status: "PUBLISHED",
+        deadline: { gt: new Date() },
+        assignedToId: null,
+      },
+    });
+
+    console.log("TASK LIST DATABASE CHECK", {
+      totalTasks,
+      availableTasks,
+    });
+
     const tasks = await prisma.task.findMany({
       where: {
         status: "PUBLISHED",
@@ -95,13 +109,12 @@ r.post(
         });
       }
 
-      // Atomic update prevents two workers claiming the same task
       const result = await prisma.task.updateMany({
         where: {
           id: task.id,
           status: "PUBLISHED",
-          assignedToId: null,
           deadline: { gt: new Date() },
+          assignedToId: null,
         },
         data: {
           assignedToId: req.user!.id,
@@ -123,7 +136,7 @@ r.post(
   }
 );
 
-// Private workspace: assigned worker, provider, or admin only
+// Private workspace
 r.get("/:id/workspace", requireAuth, async (req, res) => {
   try {
     const task = await prisma.task.findUnique({

@@ -5,6 +5,7 @@ import { api } from "../lib/api";
 
 export default function Login() {
   const navigate = useNavigate();
+
   const [isRegister, setIsRegister] = useState(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -19,21 +20,41 @@ export default function Login() {
     setLoading(true);
 
     try {
-      const endpoint = isRegister ? "/auth/register" : "/auth/login";
-      const payload = isRegister
-        ? { name, email, password, role }
-        : { email, password };
+      const endpoint = isRegister
+        ? "/auth/register"
+        : "/auth/login";
 
-      await api.post(endpoint, payload);
-      navigate("/");
+      const payload = isRegister
+        ? { name: name.trim(), email: email.trim(), password, role }
+        : { email: email.trim(), password };
+
+      const response = await api.post(endpoint, payload);
+
+      // Check whether the server returned an error-free response.
+      if (response.status < 200 || response.status >= 300) {
+        setMessage("Login failed. Please try again.");
+        return;
+      }
+
+      // Go to the tasks page after a successful response.
+      navigate("/tasks", { replace: true });
     } catch (error) {
       setMessage(
         error.response?.data?.error ||
-          "Request failed. Please check your details and try again."
+          error.response?.data?.message ||
+          (error.response
+            ? `Request failed (${error.response.status}). Check your details.`
+            : "Cannot connect to the server. Please try again.")
       );
     } finally {
       setLoading(false);
     }
+  }
+
+  function toggleMode() {
+    setIsRegister((previous) => !previous);
+    setMessage("");
+    setPassword("");
   }
 
   return (
@@ -47,17 +68,20 @@ export default function Login() {
           <>
             <input
               className="w-full rounded border p-3"
+              type="text"
               placeholder="Full name"
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
               minLength={2}
+              autoComplete="name"
             />
 
             <select
               className="w-full rounded border p-3"
               value={role}
               onChange={(e) => setRole(e.target.value)}
+              aria-label="Account role"
             >
               <option value="WORKER">Worker</option>
               <option value="PROVIDER">Provider</option>
@@ -72,6 +96,7 @@ export default function Login() {
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           required
+          autoComplete="email"
         />
 
         <input
@@ -82,16 +107,25 @@ export default function Login() {
           onChange={(e) => setPassword(e.target.value)}
           required
           minLength={8}
+          autoComplete={isRegister ? "new-password" : "current-password"}
         />
 
-        {message && <p className="text-red-600">{message}</p>}
+        {message && (
+          <p role="alert" className="text-sm text-red-600">
+            {message}
+          </p>
+        )}
 
         <button
           className="w-full rounded bg-blue-600 p-3 text-white disabled:opacity-50"
           type="submit"
           disabled={loading}
         >
-          {loading ? "Please wait..." : isRegister ? "Create account" : "Login"}
+          {loading
+            ? "Please wait..."
+            : isRegister
+              ? "Create account"
+              : "Login"}
         </button>
       </form>
 
@@ -100,10 +134,8 @@ export default function Login() {
         <button
           type="button"
           className="text-blue-600 underline"
-          onClick={() => {
-            setIsRegister(!isRegister);
-            setMessage("");
-          }}
+          onClick={toggleMode}
+          disabled={loading}
         >
           {isRegister ? "Login" : "Create an account"}
         </button>

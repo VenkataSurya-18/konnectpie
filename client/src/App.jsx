@@ -8,6 +8,7 @@ import {
   useParams,
   useNavigate,
 } from "react-router-dom";
+
 import TaskFeed from "./pages/TaskFeed";
 import Login from "./pages/Login";
 import CreateTask from "./pages/CreateTask";
@@ -29,7 +30,9 @@ function Workspace() {
       .get(`/tasks/${id}/workspace`)
       .then((res) => setTask(res.data))
       .catch((error) => {
-        setMsg(error.response?.data?.error || "Could not load task.");
+        setMsg(
+          error.response?.data?.error || "Could not load task."
+        );
       })
       .finally(() => setLoading(false));
   }, [id]);
@@ -38,7 +41,7 @@ function Workspace() {
     e.preventDefault();
 
     if (answer.trim().length < 5) {
-      setMsg("Please enter an answer with at least 5 characters.");
+      setMsg("Please enter at least 5 characters.");
       return;
     }
 
@@ -50,24 +53,30 @@ function Workspace() {
         taskId: id,
         content: answer.trim(),
       });
+
       setMsg("Task submitted successfully!");
       setAnswer("");
     } catch (error) {
       setMsg(
-        error.response?.data?.error || "Submission failed. Please try again."
+        error.response?.data?.error ||
+          "Submission failed. Please try again."
       );
     } finally {
       setSubmitting(false);
     }
   }
 
-  if (loading) return <main className="p-6">Loading task...</main>;
+  if (loading) {
+    return <main className="p-6">Loading task...</main>;
+  }
 
   if (!task) {
     return (
       <main className="mx-auto mt-12 max-w-3xl p-6">
         <p>{msg || "Task not found."}</p>
-        <button onClick={() => navigate("/")}>Back to Tasks</button>
+        <button onClick={() => navigate("/")}>
+          Back to Tasks
+        </button>
       </main>
     );
   }
@@ -75,15 +84,20 @@ function Workspace() {
   return (
     <main className="mx-auto mt-12 max-w-3xl space-y-4 rounded-xl border p-6">
       <h1 className="text-2xl font-bold">Task Workspace</h1>
+
       <h2 className="text-xl font-semibold">{task.title}</h2>
+
       <p>{task.description}</p>
+
       <p>
         <strong>Instructions:</strong>{" "}
         {task.instructions || "Follow the task description."}
       </p>
+
       <p>
         <strong>Reward:</strong> ₹{task.reward / 100}
       </p>
+
       <p>
         <strong>Status:</strong> {task.status}
       </p>
@@ -92,6 +106,7 @@ function Workspace() {
         <label htmlFor="answer" className="block font-semibold">
           Your submission
         </label>
+
         <textarea
           id="answer"
           value={answer}
@@ -101,6 +116,7 @@ function Workspace() {
           placeholder="Enter your answer or work here..."
           className="w-full rounded-lg border p-3"
         />
+
         <button
           type="submit"
           disabled={submitting}
@@ -123,17 +139,37 @@ function Workspace() {
   );
 }
 
+function AppRoutes() {
+  return (
+    <Routes>
+      {/* Login and registration */}
+      <Route path="/login" element={<Login />} />
+      <Route path="/register" element={<Login />} />
+
+      {/* Open login page by default */}
+      <Route
+        path="/"
+        element={<Navigate to="/login" replace />}
+      />
+
+      {/* Existing pages */}
+      <Route path="/tasks" element={<TaskFeed />} />
+      <Route path="/create-task" element={<CreateTask />} />
+      <Route path="/workspace/:id" element={<Workspace />} />
+
+      {/* Unknown URLs */}
+      <Route
+        path="*"
+        element={<Navigate to="/login" replace />}
+      />
+    </Routes>
+  );
+}
+
 export default function App() {
   return (
     <BrowserRouter>
-      <Routes>
-        <Route path="/login" element={<Login />} />
-        <Route path="/register" element={<Login />} />
-        <Route path="/" element={<TaskFeed />} />
-        <Route path="/create-task" element={<CreateTask />} />
-        <Route path="/workspace/:id" element={<Workspace />} />
-        <Route path="*" element={<Navigate to="/login" replace />} />
-      </Routes>
+      <AppRoutes />
     </BrowserRouter>
   );
 }

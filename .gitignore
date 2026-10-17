@@ -8,3 +8,4 @@ coverage/
 *.log
 
 server/server-log.txt
+server/test_runner.mjs

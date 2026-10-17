@@ -56,26 +56,18 @@ r.post("/", requireAuth, requireRole("PROVIDER"), async (req, res) => {
 // List available tasks
 r.get("/", requireAuth, async (_req, res) => {
   try {
-    const totalTasks = await prisma.task.count();
-    const availableTasks = await prisma.task.count({
-      where: {
-        status: "PUBLISHED",
-        deadline: { gt: new Date() },
-        assignedToId: null,
-      },
-    });
-
-    console.log("TASK LIST DATABASE CHECK", {
-      totalTasks,
-      availableTasks,
-    });
+    const now = new Date();
+    const availableFilter = {
+      status: "PUBLISHED" as const,
+      assignedToId: null,
+      OR: [
+        { deadline: null },
+        { deadline: { gt: now } },
+      ],
+    };
 
     const tasks = await prisma.task.findMany({
-      where: {
-        status: "PUBLISHED",
-        deadline: { gt: new Date() },
-        assignedToId: null,
-      },
+      where: availableFilter,
       select: publicSelect,
       orderBy: { createdAt: "desc" },
     });
@@ -87,6 +79,53 @@ r.get("/", requireAuth, async (_req, res) => {
   }
 });
 
+// List user-specific tasks (claimed tasks for worker, created tasks for provider)
+r.get("/my-tasks", requireAuth, async (req, res) => {
+  try {
+    const user = req.user!;
+    const isWorker =
+      user.role === "WORKER" ||
+      (user.role as string)?.toUpperCase() === "WORKER" ||
+      !user.role;
+
+    if (isWorker) {
+      const myClaimedTasks = await prisma.task.findMany({
+        where: {
+          OR: [
+            { assignedToId: user.id },
+            { claims: { some: { userId: user.id } } },
+          ],
+        },
+        include: {
+          submissions: {
+            orderBy: { createdAt: "desc" },
+            take: 1,
+          },
+        },
+        orderBy: { updatedAt: "desc" },
+      });
+      return res.json(myClaimedTasks);
+    } else {
+      const myCreatedTasks = await prisma.task.findMany({
+        where: {
+          providerId: user.id,
+        },
+        include: {
+          submissions: true,
+          worker: {
+            select: { id: true, name: true, email: true },
+          },
+        },
+        orderBy: { createdAt: "desc" },
+      });
+      return res.json(myCreatedTasks);
+    }
+  } catch (error) {
+    console.error("My tasks error:", error);
+    return res.status(500).json({ error: "Failed to load your tasks" });
+  }
+});
+
 // Worker claims an available task
 r.post(
   "/:id/claim",
@@ -94,12 +133,19 @@ r.post(
   requireRole("WORKER"),
   async (req, res) => {
     try {
+      const taskId = String(req.params.id);
+      const userId = req.user!.id;
+      const now = new Date();
       const task = await prisma.task.findFirst({
         where: {
-          id: req.params.id,
+          id: taskId,
           status: "PUBLISHED",
-          deadline: { gt: new Date() },
           assignedToId: null,
+          providerId: { not: userId },
+          OR: [
+            { deadline: null },
+            { deadline: { gt: now } },
+          ],
         },
       });
 
@@ -113,11 +159,14 @@ r.post(
         where: {
           id: task.id,
           status: "PUBLISHED",
-          deadline: { gt: new Date() },
           assignedToId: null,
+          OR: [
+            { deadline: null },
+            { deadline: { gt: now } },
+          ],
         },
         data: {
-          assignedToId: req.user!.id,
+          assignedToId: userId,
           status: "IN_PROGRESS",
         },
       });
@@ -127,6 +176,25 @@ r.post(
           error: "Another worker already claimed this task",
         });
       }
+
+      const existingClaim = await prisma.taskClaim.findUnique({
+        where: {
+          taskId_userId: { taskId: task.id, userId },
+        },
+      });
+
+      if (!existingClaim) {
+        await prisma.taskClaim.create({
+          data: { taskId: task.id, userId },
+        });
+      }
+
+      try {
+        const { io } = await import("../socket.js");
+        if (io) {
+          io.emit("task:taken", { taskId: task.id });
+        }
+      } catch {}
 
       return res.json({ message: "Task claimed successfully" });
     } catch (error) {
@@ -139,8 +207,9 @@ r.post(
 // Private workspace
 r.get("/:id/workspace", requireAuth, async (req, res) => {
   try {
+    const taskId = String(req.params.id);
     const task = await prisma.task.findUnique({
-      where: { id: req.params.id },
+      where: { id: taskId },
     });
 
     if (!task) {

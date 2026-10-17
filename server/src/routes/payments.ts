@@ -1,4 +1,6 @@
-function getRazorpay() {
+import Razorpay from "razorpay";
+
+export function getRazorpay() {
   const keyId = process.env.RAZORPAY_KEY_ID;
   const keySecret = process.env.RAZORPAY_KEY_SECRET;
 
@@ -11,3 +13,5 @@ function getRazorpay() {
     key_secret: keySecret,
   });
 }
+
+export default getRazorpay;

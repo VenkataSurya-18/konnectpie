@@ -1,167 +1,134 @@
-
-import { useEffect, useState } from "react";
+import React from "react";
 import {
   BrowserRouter,
   Routes,
   Route,
   Navigate,
-  useParams,
-  useNavigate,
+  useLocation,
 } from "react-router-dom";
 
-import TaskFeed from "./pages/TaskFeed";
+import { AuthProvider, useAuth } from "./context/AuthContext";
+import Landing from "./pages/Landing";
 import Login from "./pages/Login";
+import ForgotPassword from "./pages/ForgotPassword";
+import ResetPassword from "./pages/ResetPassword";
+import TaskFeed from "./pages/TaskFeed";
 import CreateTask from "./pages/CreateTask";
-import { api } from "./lib/api";
-import "./App.css";
+import Workspace from "./pages/Workspace";
 
-function Workspace() {
-  const { id } = useParams();
-  const navigate = useNavigate();
-
-  const [task, setTask] = useState(null);
-  const [answer, setAnswer] = useState("");
-  const [msg, setMsg] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
-
-  useEffect(() => {
-    api
-      .get(`/tasks/${id}/workspace`)
-      .then((res) => setTask(res.data))
-      .catch((error) => {
-        setMsg(
-          error.response?.data?.error || "Could not load task."
-        );
-      })
-      .finally(() => setLoading(false));
-  }, [id]);
-
-  async function submitTask(e) {
-    e.preventDefault();
-
-    if (answer.trim().length < 5) {
-      setMsg("Please enter at least 5 characters.");
-      return;
-    }
-
-    setSubmitting(true);
-    setMsg("");
-
-    try {
-      await api.post("/submissions", {
-        taskId: id,
-        content: answer.trim(),
-      });
-
-      setMsg("Task submitted successfully!");
-      setAnswer("");
-    } catch (error) {
-      setMsg(
-        error.response?.data?.error ||
-          "Submission failed. Please try again."
-      );
-    } finally {
-      setSubmitting(false);
-    }
-  }
+// Protected Route Guard: Enforces valid authenticated session
+function ProtectedRoute({ children }) {
+  const { isAuthenticated, loading } = useAuth();
+  const location = useLocation();
 
   if (loading) {
-    return <main className="p-6">Loading task...</main>;
-  }
-
-  if (!task) {
     return (
-      <main className="mx-auto mt-12 max-w-3xl p-6">
-        <p>{msg || "Task not found."}</p>
-        <button onClick={() => navigate("/")}>
-          Back to Tasks
-        </button>
-      </main>
+      <div className="min-h-screen bg-gradient-to-br from-indigo-50/70 via-purple-50/50 to-blue-50/70 flex flex-col items-center justify-center">
+        <div className="rounded-2xl border border-indigo-100 bg-white/90 p-8 text-center shadow-lg backdrop-blur-md">
+          <div className="inline-block animate-spin h-8 w-8 text-indigo-600 mb-3">
+            <svg className="h-full w-full" viewBox="0 0 24 24" fill="none">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+            </svg>
+          </div>
+          <p className="text-sm font-bold text-slate-800">Verifying KonnectPie session...</p>
+        </div>
+      </div>
     );
   }
 
-  return (
-    <main className="mx-auto mt-12 max-w-3xl space-y-4 rounded-xl border p-6">
-      <h1 className="text-2xl font-bold">Task Workspace</h1>
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace state={{ from: location }} />;
+  }
 
-      <h2 className="text-xl font-semibold">{task.title}</h2>
+  return children;
+}
 
-      <p>{task.description}</p>
+// Public-Only Route Guard: Redirects authenticated users to tasks feed
+function PublicOnlyRoute({ children }) {
+  const { isAuthenticated, loading } = useAuth();
 
-      <p>
-        <strong>Instructions:</strong>{" "}
-        {task.instructions || "Follow the task description."}
-      </p>
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-indigo-50/70 via-purple-50/50 to-blue-50/70 flex items-center justify-center">
+        <div className="animate-spin h-6 w-6 text-indigo-600">
+          <svg className="h-full w-full" viewBox="0 0 24 24" fill="none">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+          </svg>
+        </div>
+      </div>
+    );
+  }
 
-      <p>
-        <strong>Reward:</strong> ₹{task.reward / 100}
-      </p>
+  if (isAuthenticated) {
+    return <Navigate to="/tasks" replace />;
+  }
 
-      <p>
-        <strong>Status:</strong> {task.status}
-      </p>
-
-      <form onSubmit={submitTask} className="space-y-3">
-        <label htmlFor="answer" className="block font-semibold">
-          Your submission
-        </label>
-
-        <textarea
-          id="answer"
-          value={answer}
-          onChange={(e) => setAnswer(e.target.value)}
-          rows={6}
-          required
-          placeholder="Enter your answer or work here..."
-          className="w-full rounded-lg border p-3"
-        />
-
-        <button
-          type="submit"
-          disabled={submitting}
-          className="rounded-lg bg-indigo-600 px-4 py-2 text-white disabled:opacity-50"
-        >
-          {submitting ? "Submitting..." : "Submit Task"}
-        </button>
-      </form>
-
-      {msg && <p role="status">{msg}</p>}
-
-      <button
-        type="button"
-        onClick={() => navigate("/")}
-        className="rounded-lg border px-4 py-2"
-      >
-        Back to Available Tasks
-      </button>
-    </main>
-  );
+  return children;
 }
 
 function AppRoutes() {
   return (
     <Routes>
-      {/* Login and registration */}
-      <Route path="/login" element={<Login />} />
-      <Route path="/register" element={<Login />} />
+      {/* Landing Page */}
+      <Route path="/" element={<Landing />} />
 
-      {/* Open login page by default */}
+      {/* Authentication Pages */}
       <Route
-        path="/"
-        element={<Navigate to="/login" replace />}
+        path="/login"
+        element={
+          <PublicOnlyRoute>
+            <Login initialMode="login" />
+          </PublicOnlyRoute>
+        }
+      />
+      <Route
+        path="/register"
+        element={
+          <PublicOnlyRoute>
+            <Login initialMode="register" />
+          </PublicOnlyRoute>
+        }
+      />
+      <Route
+        path="/forgot-password"
+        element={
+          <PublicOnlyRoute>
+            <ForgotPassword />
+          </PublicOnlyRoute>
+        }
+      />
+      <Route path="/reset-password" element={<ResetPassword />} />
+
+      {/* Protected Application Pages */}
+      <Route
+        path="/tasks"
+        element={
+          <ProtectedRoute>
+            <TaskFeed />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/create-task"
+        element={
+          <ProtectedRoute>
+            <CreateTask />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/workspace/:id"
+        element={
+          <ProtectedRoute>
+            <Workspace />
+          </ProtectedRoute>
+        }
       />
 
-      {/* Existing pages */}
-      <Route path="/tasks" element={<TaskFeed />} />
-      <Route path="/create-task" element={<CreateTask />} />
-      <Route path="/workspace/:id" element={<Workspace />} />
-
-      {/* Unknown URLs */}
-      <Route
-        path="*"
-        element={<Navigate to="/login" replace />}
-      />
+      {/* Catch-all redirect */}
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
 }
@@ -169,7 +136,9 @@ function AppRoutes() {
 export default function App() {
   return (
     <BrowserRouter>
-      <AppRoutes />
+      <AuthProvider>
+        <AppRoutes />
+      </AuthProvider>
     </BrowserRouter>
   );
 }

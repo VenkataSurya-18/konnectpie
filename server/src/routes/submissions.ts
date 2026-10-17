@@ -1,116 +1,151 @@
-
-import { Router } from "express";
-import multer from "multer";
+import { Router, Request, Response } from "express";
 import { prisma } from "../prisma";
 import { requireAuth } from "../middleware/auth";
 import { notifyUser } from "../socket";
 
-const upload = multer({
-  dest: "uploads/",
-  limits: { fileSize: 2 * 1024 * 1024 },
-  fileFilter: (_req, file, cb) => {
-    const allowedTypes = ["image/png", "image/jpeg"];
-
-    if (allowedTypes.includes(file.mimetype)) {
-      cb(null, true);
-    } else {
-      cb(new Error("Only PNG and JPEG images are allowed"));
-    }
-  },
-});
-
 const r = Router();
 
-// Worker submits a claimed task
-r.post(
-  "/:taskId/submit",
-  requireAuth,
-  upload.array("files", 5),
-  async (req, res) => {
-    try {
-      const task = await prisma.task.findUnique({
-        where: { id: req.params.taskId },
-      });
-
-      if (!task || task.assignedToId !== req.user!.id) {
-        return res.status(403).json({ error: "Task not assigned to you" });
-      }
-
-      if (task.deadline < new Date()) {
-        return res.status(400).json({ error: "Deadline passed" });
-      }
-
-      if (
-        task.status !== "IN_PROGRESS" &&
-        task.status !== "ASSIGNED"
-      ) {
-        return res.status(400).json({ error: "Task is not submittable" });
-      }
-
-      const uploadedFiles = (req.files as Express.Multer.File[]) || [];
-      const fileUrls = uploadedFiles.map((file) => file.path);
-
-      await prisma.$transaction(async (tx) => {
-        await tx.submission.create({
-          data: {
-            taskId: task.id,
-            workerId: req.user!.id,
-            notes: req.body.notes || "",
-            fileUrls,
-          },
-        });
-
-        await tx.task.update({
-          where: { id: task.id },
-          data: { status: "SUBMITTED" },
-        });
-      });
-
-      await notifyUser(
-        task.providerId,
-        `New submission for "${task.title}"`,
-        task.id
-      );
-
-      return res.json({ ok: true, message: "Task submitted successfully" });
-    } catch (error) {
-      console.error("Task submission error:", error);
-
-      return res.status(500).json({
-        error: "Failed to submit task. Please try again.",
-      });
-    }
-  }
-);
-
-// Provider approves or rejects a submission
-r.post("/:taskId/review", requireAuth, async (req, res) => {
+// Worker submits task work from workspace (JSON payload)
+r.post("/", requireAuth, async (req: Request, res: Response) => {
   try {
-    const { approve, feedback } = req.body;
+    const { taskId, content } = req.body;
 
-    if (typeof approve !== "boolean") {
-      return res.status(400).json({
-        error: "approve must be true or false",
-      });
+    if (!taskId || !content || typeof content !== "string" || content.trim().length < 5) {
+      return res.status(400).json({ error: "Please enter at least 5 characters for submission." });
     }
 
     const task = await prisma.task.findUnique({
-      where: { id: req.params.taskId },
-      include: { submissions: true },
+      where: { id: taskId },
+    });
+
+    if (!task) {
+      return res.status(404).json({ error: "Task not found." });
+    }
+
+    if (task.assignedToId !== req.user!.id) {
+      return res.status(403).json({ error: "This task is not assigned to you." });
+    }
+
+    if (task.deadline && task.deadline < new Date()) {
+      return res.status(400).json({ error: "Task deadline has passed." });
+    }
+
+    const submission = await prisma.$transaction(async (tx) => {
+      const created = await tx.submission.create({
+        data: {
+          taskId: task.id,
+          userId: req.user!.id,
+          content: content.trim(),
+          status: "PENDING",
+        },
+      });
+
+      await tx.task.update({
+        where: { id: task.id },
+        data: { status: "SUBMITTED" },
+      });
+
+      return created;
+    });
+
+    try {
+      await notifyUser(
+        task.providerId,
+        `New submission for "${task.title}"`
+      );
+    } catch {
+      // Notification dispatch failure should not fail submission
+    }
+
+    return res.status(201).json({
+      ok: true,
+      message: "Task submitted successfully!",
+      submissionId: submission.id,
+    });
+  } catch (error) {
+    console.error("Submission error:", error);
+    return res.status(500).json({ error: "Failed to submit task. Please try again." });
+  }
+});
+
+// Worker submits task work via :taskId param
+r.post("/:taskId/submit", requireAuth, async (req: Request, res: Response) => {
+  try {
+    const taskId = req.params.taskId as string;
+    const content = req.body.content || req.body.notes || "Completed task submission";
+
+    const task = await prisma.task.findUnique({
+      where: { id: taskId },
+    });
+
+    if (!task) {
+      return res.status(404).json({ error: "Task not found." });
+    }
+
+    if (task.assignedToId !== req.user!.id) {
+      return res.status(403).json({ error: "Task not assigned to you." });
+    }
+
+    if (task.deadline && task.deadline < new Date()) {
+      return res.status(400).json({ error: "Task deadline has passed." });
+    }
+
+    const submission = await prisma.$transaction(async (tx) => {
+      const created = await tx.submission.create({
+        data: {
+          taskId: task.id,
+          userId: req.user!.id,
+          content: String(content).trim(),
+          status: "PENDING",
+        },
+      });
+
+      await tx.task.update({
+        where: { id: task.id },
+        data: { status: "SUBMITTED" },
+      });
+
+      return created;
+    });
+
+    try {
+      await notifyUser(
+        task.providerId,
+        `New submission for "${task.title}"`
+      );
+    } catch {
+      // Continue even if notification push fails
+    }
+
+    return res.json({ ok: true, message: "Task submitted successfully", submissionId: submission.id });
+  } catch (error) {
+    console.error("Task submission error:", error);
+    return res.status(500).json({ error: "Failed to submit task. Please try again." });
+  }
+});
+
+// Provider reviews a submission
+r.post("/:taskId/review", requireAuth, async (req: Request, res: Response) => {
+  try {
+    const taskId = req.params.taskId as string;
+    const { approve, feedback } = req.body;
+
+    if (typeof approve !== "boolean") {
+      return res.status(400).json({ error: "approve must be true or false" });
+    }
+
+    const task = await prisma.task.findUnique({
+      where: { id: taskId },
+      include: { submissions: { orderBy: { createdAt: "desc" }, take: 1 } },
     });
 
     if (!task || task.providerId !== req.user!.id) {
-      return res.status(403).json({ error: "Not authorized to review this task" });
-    }
-
-    if (task.status !== "SUBMITTED") {
-      return res.status(400).json({ error: "Task is not awaiting review" });
+      return res.status(403).json({ error: "Not authorized to review this task." });
     }
 
     const submission = task.submissions[0];
-
     if (!submission) {
-      return res.status(404).json({ error: "Submission not found" });
+      return res.status(404).json({ error: "No submission found to review." });
     }
 
     await prisma.$transaction(async (tx) => {
@@ -118,7 +153,7 @@ r.post("/:taskId/review", requireAuth, async (req, res) => {
         where: { id: submission.id },
         data: {
           status: approve ? "APPROVED" : "REJECTED",
-          feedback: feedback || null,
+          reviewNotes: feedback || null,
         },
       });
 
@@ -126,24 +161,16 @@ r.post("/:taskId/review", requireAuth, async (req, res) => {
         where: { id: task.id },
         data: { status: approve ? "COMPLETED" : "REJECTED" },
       });
-
-      if (approve) {
-        await tx.rewardLedger.create({
-          data: {
-            taskId: task.id,
-            userId: submission.workerId,
-            type: "PAYOUT",
-            amount: task.reward,
-          },
-        });
-      }
     });
 
-    await notifyUser(
-      submission.workerId,
-      approve ? "Submission approved!" : `Submission rejected: ${feedback || "Please review the feedback."}`,
-      task.id
-    );
+    try {
+      await notifyUser(
+        submission.userId,
+        approve ? `Your submission for "${task.title}" was approved!` : `Your submission for "${task.title}" was rejected: ${feedback || "Please review feedback."}`
+      );
+    } catch {
+      // Continue
+    }
 
     return res.json({
       ok: true,
@@ -151,10 +178,7 @@ r.post("/:taskId/review", requireAuth, async (req, res) => {
     });
   } catch (error) {
     console.error("Submission review error:", error);
-
-    return res.status(500).json({
-      error: "Failed to review submission",
-    });
+    return res.status(500).json({ error: "Failed to review submission" });
   }
 });
 

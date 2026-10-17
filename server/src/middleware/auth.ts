@@ -1,5 +1,5 @@
 
-import { Request, Response, NextFunction } from "express";
+import type { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 
 export interface AuthUser {
@@ -20,7 +20,12 @@ export const requireAuth = (
   res: Response,
   next: NextFunction
 ) => {
-  const token = req.cookies?.token;
+  const authHeader = req.headers.authorization;
+  const bearerToken =
+    typeof authHeader === "string" && authHeader.startsWith("Bearer ")
+      ? authHeader.slice(7)
+      : null;
+  const token = req.cookies?.token || bearerToken;
 
   if (!token) {
     return res.status(401).json({ error: "Not logged in" });
